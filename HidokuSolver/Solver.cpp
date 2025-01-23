@@ -6,14 +6,16 @@
 #include <iostream>
 #include <chrono>
 #include <functional>
+#include <queue>
 
-Solver::Solver(const Grid& initialGrid, const Grid& solutionGrid) : root(std::make_shared<Node>(initialGrid, -1)), solutionGrid(solutionGrid) 
+Solver::Solver(const Grid& initialGrid, const Grid& solutionGrid) : grid(initialGrid), solution(solutionGrid)
 {
-    positions = mapGridValuesToPositions(initialGrid);
-    pairs = findNonConsecutivePairs(positions);
+    positions = findFixedCells(initialGrid);
+    neighbors = computeNeighbors(initialGrid);
+    dofGrid = computeInitialDOF(initialGrid);
 }
 
-std::unordered_map<int, std::pair<int, int>> Solver::mapGridValuesToPositions(const Grid& grid)
+std::unordered_map<int, std::pair<int, int>> Solver::findFixedCells(const Grid& grid)
 {
     std::unordered_map<int, std::pair<int, int>> positions;
 
@@ -29,159 +31,302 @@ std::unordered_map<int, std::pair<int, int>> Solver::mapGridValuesToPositions(co
         }
     }
 
-    for (const auto& [num, pos] : positions)
-    {
-        std::cout << "Value: " << num << ", Position: (" << pos.first << ", " << pos.second << ")\n";
-    }
-
     return positions;
 }
 
-std::vector<std::pair<int, int>> Solver::findNonConsecutivePairs(const std::unordered_map<int, std::pair<int, int>>& positions)
+Neighbor Solver::computeNeighbors(const Grid& grid)
 {
-    std::vector<int> keys;
-    for (const auto& pair : positions)
-    {
-        keys.push_back(pair.first);
-    }
-    std::sort(keys.begin(), keys.end());
+    int size = grid.getSize();
+    Neighbor neighbors(size, std::vector<std::vector<std::pair<int, int>>>(size));
 
-    std::vector<std::pair<int, int>> pairs;
-    for (size_t i = 0; i < keys.size() - 1; ++i)
+    for (int i = 0; i < size; ++i)
     {
-        if (keys[i + 1] - keys[i] > 1)
+        for (int j = 0; j < size; ++j)
         {
-            pairs.emplace_back(keys[i], keys[i + 1]);
-        }
-    }
+            std::vector<std::pair<int, int>> cellNeighbors;
 
-    std::cout << "Pairs: ";
-    for (const auto& pair : pairs)
-    {
-        std::cout << "(" << pair.first << ", " << pair.second << ") ";
-    }
-    std::cout << std::endl;
-
-    return pairs;
-}
-
-void Solver::buildTree(std::shared_ptr<Node> node, int depth, bool useHeuristicA)
-{
-    if (depth <= 0 || node->getGridState().isComplete(solutionGrid)) return;
-
-    const Grid& grid = node->getGridState();
-
-    for (const auto& [start, end] : pairs)
-    {
-        auto [startX, startY] = positions[start];
-        auto [endX, endY] = positions[end];
-        int totalNodes = abs(end - start) + 1;
-
-        std::cout << "Building subtree for pair (" << start << ", " << end << ")\n";
-
-        findAndAddChildren(node, grid, startX, startY, endX, endY, totalNodes, start,
-            useHeuristicA, startX, startY, endX, endY);
-
-        std::cout << "Node now has " << node->getChildren().size() << " children.\n";
-    }
-}
-
-void Solver::findAndAddChildren(std::shared_ptr<Node> parentNode, const Grid& grid, int startX, int startY, int endX, int endY,
-    int totalNodes, int startValue, bool useHeuristicA, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY)
-{
-    std::vector<std::vector<bool>> visited(grid.getSize(), std::vector<bool>(grid.getSize(), false));
-
-    auto isValidMove = [&](int x, int y)
-    {
-        bool valid = grid.isWithinBounds(x, y) && !visited[x][y] && (grid.getValue(x, y) == 0 || (x == endX && y == endY));
-        if (!valid)
-        {
-            std::cout << "Invalid move to: (" << x << ", " << y << ")\n";
-        }
-        return valid;
-    };
-
-    std::function<void(int, int, int, Grid)> explorePaths = [&](int x, int y, int remaining, Grid currentGrid)
-    {
-        if (remaining == 1 && x == endX && y == endY)
-        {
-            auto childNode = std::make_shared<Node>(currentGrid, startValue + totalNodes - 1);
-            childNode->setScore(useHeuristicA
-                ? heuristicA(currentGrid, playerHeadX, playerHeadY, opponentHeadX, opponentHeadY)
-                : heuristicB(currentGrid, playerHeadX, playerHeadY, opponentHeadX, opponentHeadY));
-
-            parentNode->addChild(childNode);
-
-            std::cout << "Child added with score: " << childNode->getScore() << "\n";
-            currentGrid.display(std::cout);
-            return;
-        }
-
-        if (remaining <= 1) return;
-
-        std::vector<std::pair<int, int>> directions = { {-1, 0}, {1, 0}, {0, -1}, {0, 1}, {-1, -1}, {-1, 1}, {1, -1}, {1, 1} };
-
-        for (const auto& direction : directions)
-        {
-            int nx = x + direction.first;
-            int ny = y + direction.second;
-
-            if (isValidMove(nx, ny))
+            for (int dx = -1; dx <= 1; ++dx)
             {
-                visited[nx][ny] = true;
-                currentGrid.setValue(nx, ny, startValue + totalNodes - remaining);
+                for (int dy = -1; dy <= 1; ++dy)
+                {
+                    if ((dx != 0 || dy != 0) && grid.isWithinBounds(i + dx, j + dy))
+                    {
+                        cellNeighbors.emplace_back(i + dx, j + dy);
+                    }
+                }
+            }
 
-                std::cout << "Exploring move to: (" << nx << ", " << ny << "), Remaining: " << remaining - 1 << "\n";
+            neighbors[i][j] = std::move(cellNeighbors);
+        }
+    }
 
-                explorePaths(nx, ny, remaining - 1, currentGrid);
+    return neighbors;
+}
 
-                visited[nx][ny] = false;
-                currentGrid.setValue(nx, ny, 0);
+std::vector<int> Solver::getFixedNeighborValues(const Grid& grid, int x, int y) 
+{
+    std::vector<int> neighborValues;
+
+    for (const auto& neighbor : neighbors[x][y]) 
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+
+        int value = grid.getValue(nx, ny);
+
+        if (value != 0) 
+        {
+            neighborValues.push_back(value);
+        }
+    }
+
+    return neighborValues;
+}
+
+std::unordered_set<int> Solver::findUsedValues(const Grid& grid) 
+{
+    std::unordered_set<int> usedValues;
+
+    for (int i = 0; i < grid.getSize(); ++i) 
+    {
+        for (int j = 0; j < grid.getSize(); ++j)
+        {
+            if (grid.getValue(i, j) != 0)
+            {
+                usedValues.insert(grid.getValue(i, j));
             }
         }
-    };
+    }
 
-    visited[startX][startY] = true;
-    Grid initialGrid = grid;
-    initialGrid.setValue(startX, startY, startValue);
-
-    explorePaths(startX, startY, totalNodes, initialGrid);
+    return usedValues;
 }
 
-bool Solver::dfsBidirectional(std::shared_ptr<Node> node, int depth, int alpha, int beta,
-    bool isPlayerOneTurn, int player1X, int player1Y, int player2X, int player2Y)
+std::vector<std::vector<int>> Solver::computeInitialDOF(const Grid& grid) 
 {
-    if (node->getGridState().isComplete(solutionGrid))
+    int size = grid.getSize();
+    std::vector<std::vector<int>> dof(size, std::vector<int>(size, 0));
+    std::unordered_set<int> usedValues = findUsedValues(grid);
+
+    for (int i = 0; i < size; ++i) 
     {
-        root = node;
+        for (int j = 0; j < size; ++j) 
+        {
+            if (grid.getValue(i, j) == 0)
+            {
+                std::vector<int> neighborValues = getFixedNeighborValues(grid, i, j);
+                int validCount = 0;
+
+                for (int neighbor : neighborValues) 
+                {
+                    if ((neighbor + 1 <= size * size && !usedValues.count(neighbor + 1)) || (neighbor - 1 >= 1 && !usedValues.count(neighbor - 1))) 
+                    {
+                        ++validCount;
+                    }
+                }
+
+                dof[i][j] = validCount;
+            }
+        }
+    }
+
+    return dof;
+}
+
+void Solver::updateDOF(const Position& move, int value) 
+{
+    int size = grid.getSize();
+    int x = move.x;
+    int y = move.y;
+
+    dofGrid[x][y] = 0;
+
+    for (const auto& neighbor : neighbors[x][y]) 
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+
+        if (grid.getValue(nx, ny) == 0)
+        {
+            std::vector<int> neighborValues = getFixedNeighborValues(grid, nx, ny);
+            int validCount = 0;
+
+            for (int neighborValue : neighborValues) 
+            {
+                if ((neighborValue + 1 <= size * size && neighborValue + 1 != value) || (neighborValue - 1 >= 1 && neighborValue - 1 != value)) 
+                {
+                    ++validCount;
+                }
+            }
+            dofGrid[nx][ny] = validCount;
+        }
+    }
+}
+
+bool Solver::isValidMove(int nx, int ny, int targetValue)
+{
+    if (!grid.isWithinBounds(nx, ny))
+    {
+        return false;
+    }
+
+    if (grid.getValue(nx, ny) != 0 && grid.getValue(nx, ny) != targetValue)
+    {
+        return false;
+    }
+
+    if (positions.find(targetValue) != positions.end() && positions[targetValue] != std::make_pair(nx, ny))
+    {
+        return false;
+    }
+
+    std::vector<int> neighborValues = getFixedNeighborValues(grid, nx, ny);
+    for (int neighborValue : neighborValues)
+    {
+        if (neighborValue + 1 == targetValue || neighborValue - 1 == targetValue)
+        {
+            return true;
+        }
+    }
+
+    return false;
+}
+
+bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
+{
+    if (P1_head == P2_head)
+    {
+        std::cout << (isP1Turn ? "Player 1 wins!" : "Player 2 wins!") << std::endl;
         return true;
     }
 
-    if (depth <= 0) return false;
+    int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
+    int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
+    Position& currentHead = isP1Turn ? P1_head : P2_head;
+    Position& opponentHead = isP1Turn ? P2_head : P1_head;
 
-    if (isPlayerOneTurn)
+    if (positions.find(targetValue) != positions.end())
     {
-        for (const auto& child : node->getChildren())
-        {
-            int score = dfsBidirectional(child, depth - 1, alpha, beta, false, player1X, player1Y, player2X, player2Y);
-            alpha = std::max(alpha, score);
+        currentHead = Position(positions[targetValue].first, positions[targetValue].second);
+        grid.display(std::cout);
+        return solveRecursive(P1_head, P2_head, !isP1Turn);
+    }
 
-            if (beta <= alpha) break;
+    Position bestMove(-1, -1);
+    int bestScore = isP1Turn ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+    bool moveFound = false;
+
+    for (const auto& neighbor : neighbors[currentHead.x][currentHead.y])
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+
+        if (!isValidMove(nx, ny, targetValue))
+            continue;
+
+        moveFound = true;
+
+        int originalValue = grid.getValue(nx, ny);
+        grid.setValue(nx, ny, targetValue);
+        updateDOF({ nx, ny }, targetValue);
+
+        int score = minimax({ nx, ny }, opponentHead, 3, std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), !isP1Turn, targetValue + 1, targetValue - 1);
+
+        grid.setValue(nx, ny, originalValue);
+        updateDOF({ nx, ny }, originalValue);
+
+        if ((isP1Turn && score > bestScore) || (!isP1Turn && score < bestScore))
+        {
+            bestScore = score;
+            bestMove = { nx, ny };
+        }
+    }
+
+    if (!moveFound)
+    {
+        return false;
+    }
+
+    if (bestMove.x == -1 && bestMove.y == -1)
+    {
+        return false;
+    }
+
+    grid.setValue(bestMove.x, bestMove.y, targetValue);
+    updateDOF(bestMove, targetValue);
+    currentHead = bestMove;
+
+    grid.display(std::cout);
+
+    return solveRecursive(P1_head, P2_head, !isP1Turn);
+}
+
+int Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, int targetValue, int opponentValue)
+{
+    if (depth == 0 || current == opponent || grid.getValue(current.x, current.y) == targetValue)
+    {
+        return isMaximizingPlayer
+            ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
+            : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
+    }
+
+    int bestScore = isMaximizingPlayer ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+
+    for (const auto& neighbor : neighbors[current.x][current.y])
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+
+        if (positions.find(targetValue) != positions.end() && positions[targetValue] == std::make_pair(nx, ny))
+        {
+            continue;
         }
 
-        return alpha >= beta;
-    }
-    else
-    {
-        for (const auto& child : node->getChildren())
+        if (!isValidMove(nx, ny, targetValue))
         {
-            int score = dfsBidirectional(child, depth - 1, alpha, beta, true, player1X, player1Y, player2X, player2Y);
-            beta = std::min(beta, score);
-
-            if (beta <= alpha) break;
+            continue;
         }
-        return beta <= alpha;
+
+        int originalValue = grid.getValue(nx, ny);
+        grid.setValue(nx, ny, targetValue);
+        updateDOF({ nx, ny }, targetValue);
+
+        int score = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, opponentValue, targetValue);
+
+        grid.setValue(nx, ny, originalValue);
+        updateDOF({ nx, ny }, originalValue);
+
+        if (isMaximizingPlayer)
+        {
+            bestScore = std::max(bestScore, score);
+            alpha = std::max(alpha, bestScore);
+        }
+        else
+        {
+            bestScore = std::min(bestScore, score);
+            beta = std::min(beta, bestScore);
+        }
+
+        if (beta <= alpha)
+            break;
     }
+
+    return bestScore;
+}
+
+bool Solver::solve() 
+{
+    auto start = std::chrono::high_resolution_clock::now();
+
+    Position P1_head(positions[1].first, positions[1].second);
+    Position P2_head(positions[grid.getSize() * grid.getSize()].first, positions[grid.getSize() * grid.getSize()].second);
+
+    bool success = solveRecursive(P1_head, P2_head, true);
+
+    auto end = std::chrono::high_resolution_clock::now();
+    std::cout << "Solution " << (success ? "found" : "not found") << " in "
+        << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms.\n";
+
+    return success;
 }
 
 int Solver::heuristicA(const Grid& grid, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY)
@@ -199,11 +344,13 @@ int Solver::heuristicA(const Grid& grid, int playerHeadX, int playerHeadY, int o
         }
     }
 
+    int playerDOF = dofGrid[playerHeadX][playerHeadY];
+    int opponentDOF = dofGrid[opponentHeadX][opponentHeadY];
+
     int distanceToOpponent = abs(playerHeadX - opponentHeadX) + abs(playerHeadY - opponentHeadY);
 
-    return -conflictPenalty + distanceToOpponent;
+    return -conflictPenalty + distanceToOpponent + (5 * playerDOF) - (3 * opponentDOF);
 }
-
 
 int Solver::heuristicB(const Grid& grid, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY)
 {
@@ -236,33 +383,17 @@ int Solver::heuristicB(const Grid& grid, int playerHeadX, int playerHeadY, int o
         }
     }
 
+    int playerDOF = dofGrid[playerHeadX][playerHeadY];
+    int opponentDOF = dofGrid[opponentHeadX][opponentHeadY];
+
     int distanceToOpponent = abs(playerHeadX - opponentHeadX) + abs(playerHeadY - opponentHeadY);
     int distanceFactor = -distanceToOpponent * 2;
 
-    return proximityScore - conflictPenalty + distanceFactor;
+    return proximityScore - conflictPenalty + distanceFactor + (5 * playerDOF) - (7 * opponentDOF);
 }
 
-bool Solver::solve()
-{
-    auto start = std::chrono::high_resolution_clock::now();
-
-    constexpr int alpha = std::numeric_limits<int>::min();
-    constexpr int beta = std::numeric_limits<int>::max();
-
-    auto [player1X, player1Y] = positions[1];
-    auto [player2X, player2Y] = positions[solutionGrid.getMaxValue()];
-
-    bool success = dfsBidirectional(root, pairs.size(), alpha, beta, true, player1X, player1Y, player2X, player2Y);
-
-    auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Solution " << (success ? "found" : "not found") << " in "
-        << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms." << std::endl;
-
-    return success;
-}
-
-void Solver::displaySolution() const 
+void Solver::displaySolution() const
 {
     std::cout << "FINAL GRID:" << std::endl;
-    root->getGridState().display(std::cout);
+    grid.display(std::cout);
 }
