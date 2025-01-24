@@ -162,7 +162,7 @@ void Solver::updateDOF(const Position& move, int value)
     }
 }
 
-bool Solver::isValidMove(int nx, int ny, int targetValue)
+bool Solver::isValidMove(int nx, int ny, int targetValue, int nextValue)
 {
     if (!grid.isWithinBounds(nx, ny))
     {
@@ -180,137 +180,182 @@ bool Solver::isValidMove(int nx, int ny, int targetValue)
     }
 
     std::vector<int> neighborValues = getFixedNeighborValues(grid, nx, ny);
-    for (int neighborValue : neighborValues)
+
+    if (positions.find(nextValue) != positions.end())
     {
-        if (neighborValue + 1 == targetValue || neighborValue - 1 == targetValue)
-        {
-            return true;
-        }
+       auto [fixedX, fixedY] = positions[nextValue];
+
+       bool isBridgingFixed = std::any_of(neighborValues.begin(), neighborValues.end(), [&](int neighborValue)
+          {
+             return (neighborValue == nextValue || neighborValue == targetValue);
+          });
+
+       int distanceToFixed = abs(fixedX - nx) + abs(fixedY - ny);
+       bool isAdjacent = (distanceToFixed == 1 || (abs(fixedX - nx) == 1 && abs(fixedY - ny) == 1));
+
+       if (!isBridgingFixed || !isAdjacent)
+       {
+          return false;
+       }
     }
 
-    return false;
+    return true;
+}
+
+bool Solver::checkFixedValueProximity(Position pos, int value)
+{
+   auto [fixedX, fixedY] = positions[value];
+   int manhattanDistance = abs(pos.x - fixedX) + abs(pos.y - fixedY);
+
+   return manhattanDistance == 1 || (abs(pos.x - fixedX) == 1 && abs(pos.y - fixedY) == 1);
 }
 
 bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 {
-    if (P1_head == P2_head)
-    {
-        std::cout << (isP1Turn ? "Player 1 wins!" : "Player 2 wins!") << std::endl;
-        return true;
-    }
+   if (P1_head == P2_head)
+   {
+      return true;
+   }
 
-    int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
-    int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
-    Position& currentHead = isP1Turn ? P1_head : P2_head;
-    Position& opponentHead = isP1Turn ? P2_head : P1_head;
+   int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
+   int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
+   Position& currentHead = isP1Turn ? P1_head : P2_head;
+   Position& opponentHead = isP1Turn ? P2_head : P1_head;
 
-    if (positions.find(targetValue) != positions.end())
-    {
-        currentHead = Position(positions[targetValue].first, positions[targetValue].second);
-        grid.display(std::cout);
-        return solveRecursive(P1_head, P2_head, !isP1Turn);
-    }
+   if (positions.find(targetValue) != positions.end())
+   {
+      currentHead = Position(positions[targetValue].first, positions[targetValue].second);
+      grid.display(std::cout);
+      return solveRecursive(P1_head, P2_head, !isP1Turn);
+   }
 
-    Position bestMove(-1, -1);
-    int bestScore = isP1Turn ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
-    bool moveFound = false;
+   Position bestMove(-1, -1);
+   int bestScore = isP1Turn ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+   bool moveFound = false;
 
-    for (const auto& neighbor : neighbors[currentHead.x][currentHead.y])
-    {
-        int nx = neighbor.first;
-        int ny = neighbor.second;
+   for (const auto& neighbor : neighbors[currentHead.x][currentHead.y])
+   {
+      int nx = neighbor.first;
+      int ny = neighbor.second;
 
-        if (!isValidMove(nx, ny, targetValue))
-            continue;
+      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-        moveFound = true;
+      if (!isValidMove(nx, ny, targetValue, nextTargetValue))
+         continue;
 
-        int originalValue = grid.getValue(nx, ny);
-        grid.setValue(nx, ny, targetValue);
-        updateDOF({ nx, ny }, targetValue);
+      moveFound = true;
 
-        int score = minimax({ nx, ny }, opponentHead, 3, std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), !isP1Turn, targetValue + 1, targetValue - 1);
+      int originalValue = grid.getValue(nx, ny);
+      grid.setValue(nx, ny, targetValue);
+      updateDOF({ nx, ny }, targetValue);
 
-        grid.setValue(nx, ny, originalValue);
-        updateDOF({ nx, ny }, originalValue);
+      int score = minimax({ nx, ny }, opponentHead, grid.getSize() * grid.getSize(), std::numeric_limits<int>::min(), std::numeric_limits<int>::max(),!isP1Turn, isP1Turn, nextTargetValue);
 
-        if ((isP1Turn && score > bestScore) || (!isP1Turn && score < bestScore))
-        {
-            bestScore = score;
-            bestMove = { nx, ny };
-        }
-    }
+      grid.setValue(nx, ny, originalValue);
+      updateDOF({ nx, ny }, originalValue);
 
-    if (!moveFound)
-    {
-        return false;
-    }
+      if ((isP1Turn && score > bestScore) || (!isP1Turn && score < bestScore))
+      {
+         bestScore = score;
+         bestMove = { nx, ny };
+      }
+   }
 
-    if (bestMove.x == -1 && bestMove.y == -1)
-    {
-        return false;
-    }
+   if (!moveFound)
+   {
+      return false;
+   }
 
-    grid.setValue(bestMove.x, bestMove.y, targetValue);
-    updateDOF(bestMove, targetValue);
-    currentHead = bestMove;
+   if (bestMove.x == -1 && bestMove.y == -1)
+   {
+      return false;
+   }
 
-    grid.display(std::cout);
+   grid.setValue(bestMove.x, bestMove.y, targetValue);
+   updateDOF(bestMove, targetValue);
+   currentHead = bestMove;
 
-    return solveRecursive(P1_head, P2_head, !isP1Turn);
+   grid.display(std::cout);
+
+   return solveRecursive(P1_head, P2_head, !isP1Turn);
 }
 
-int Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, int targetValue, int opponentValue)
+int Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue)
 {
-    if (depth == 0 || current == opponent || grid.getValue(current.x, current.y) == targetValue)
-    {
-        return isMaximizingPlayer
-            ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
-            : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
-    }
+   if (depth == 0 || current == opponent || grid.getValue(current.x, current.y) == targetValue) // stupid evaluation
+   {
+      return isMaximizingPlayer
+         ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
+         : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
+   }
 
-    int bestScore = isMaximizingPlayer ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+   int bestScore = isMaximizingPlayer ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
 
-    for (const auto& neighbor : neighbors[current.x][current.y])
-    {
-        int nx = neighbor.first;
-        int ny = neighbor.second;
+   if (positions.find(targetValue) != positions.end() && checkFixedValueProximity({ current.x, current.y }, targetValue))
+   {
+      auto [fixedX, fixedY] = positions[targetValue];
+      current = Position(fixedX, fixedY);
 
-        if (positions.find(targetValue) != positions.end() && positions[targetValue] == std::make_pair(nx, ny))
-        {
-            continue;
-        }
+      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-        if (!isValidMove(nx, ny, targetValue))
-        {
-            continue;
-        }
+      int score = minimax({ current.x, current.y }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
-        int originalValue = grid.getValue(nx, ny);
-        grid.setValue(nx, ny, targetValue);
-        updateDOF({ nx, ny }, targetValue);
+      if (isMaximizingPlayer)
+      {
+         bestScore = std::max(bestScore, score);
+         alpha = std::max(alpha, bestScore);
+      }
+      else
+      {
+         bestScore = std::min(bestScore, score);
+         beta = std::min(beta, bestScore);
+      }
 
-        int score = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, opponentValue, targetValue);
+      return bestScore;
+   }
 
-        grid.setValue(nx, ny, originalValue);
-        updateDOF({ nx, ny }, originalValue);
+   for (const auto& neighbor : neighbors[current.x][current.y])
+   {
+      int nx = neighbor.first;
+      int ny = neighbor.second;
 
-        if (isMaximizingPlayer)
-        {
-            bestScore = std::max(bestScore, score);
-            alpha = std::max(alpha, bestScore);
-        }
-        else
-        {
-            bestScore = std::min(bestScore, score);
-            beta = std::min(beta, bestScore);
-        }
+      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-        if (beta <= alpha)
-            break;
-    }
+      if (positions.find(targetValue) != positions.end() && positions[targetValue] == std::make_pair(nx, ny))
+      {
+         continue;
+      }
 
-    return bestScore;
+      if (!isValidMove(nx, ny, targetValue, nextTargetValue))
+      {
+         continue;
+      }
+
+      int originalValue = grid.getValue(nx, ny);
+      grid.setValue(nx, ny, targetValue);
+      updateDOF({ nx, ny }, targetValue);
+
+      int score = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+
+      grid.setValue(nx, ny, originalValue);
+      updateDOF({ nx, ny }, originalValue);
+
+      if (isMaximizingPlayer)
+      {
+         bestScore = std::max(bestScore, score);
+         alpha = std::max(alpha, bestScore);
+      }
+      else
+      {
+         bestScore = std::min(bestScore, score);
+         beta = std::min(beta, bestScore);
+      }
+
+      if (beta <= alpha)
+         break;
+   }
+
+   return bestScore;
 }
 
 bool Solver::solve() 
