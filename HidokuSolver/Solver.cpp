@@ -210,6 +210,21 @@ bool Solver::checkFixedValueProximity(Position pos, int value)
    return manhattanDistance == 1 || (abs(pos.x - fixedX) == 1 && abs(pos.y - fixedY) == 1);
 }
 
+bool Solver::boardFilled() const
+{
+    for (int x = 0; x < grid.getSize(); ++x)
+    {
+        for (int y = 0; y < grid.getSize(); ++y)
+        {
+            if (grid.getValue(x, y) == 0)
+            {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
 bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 {
     if (P1_head == P2_head)
@@ -247,9 +262,14 @@ bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 
 Position Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue) 
 {
-    if (current == opponent || depth == 0 || grid.getValue(current.x, current.y) == targetValue)
+    if (current == opponent || grid.getValue(current.x, current.y) == targetValue)
     {
         return current;
+    }
+
+    if ((boardFilled() && current != opponent) || depth == 0)
+    {
+        return { -1, -1 };
     }
 
     Position bestMove(-1, -1);
@@ -257,20 +277,20 @@ Position Solver::minimax(Position current, Position opponent, int depth, int alp
 
     if (positions.find(targetValue) != positions.end() && checkFixedValueProximity({ current.x, current.y }, targetValue)) 
     {
-        auto [fixedX, fixedY] = positions[targetValue];
+        auto [nx, ny] = positions[targetValue];
 
         int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-        Position result = minimax({ fixedX, fixedY }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+        Position result = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
-        int score = isMaximizingPlayer ? heuristicA(grid, fixedX, fixedY, opponent.x, opponent.y) : heuristicB(grid, fixedX, fixedY, opponent.x, opponent.y);
+        int score = isMaximizingPlayer ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
 
         if (isMaximizingPlayer)
         {
             if (score > bestScore)
             {
                 bestScore = score;
-                bestMove = { fixedX, fixedY };
+                bestMove = { nx, ny };
             }
 
             alpha = std::max(alpha, bestScore);
@@ -280,7 +300,7 @@ Position Solver::minimax(Position current, Position opponent, int depth, int alp
             if (score < bestScore)
             {
                 bestScore = score;
-                bestMove = { fixedX, fixedY };
+                bestMove = { nx, ny };
             }
 
             beta = std::min(beta, bestScore);
@@ -289,7 +309,7 @@ Position Solver::minimax(Position current, Position opponent, int depth, int alp
 
         if (beta <= alpha)
         {
-            return { fixedX, fixedY };
+            return { nx, ny };
         }
 
         return bestMove;
@@ -311,7 +331,7 @@ Position Solver::minimax(Position current, Position opponent, int depth, int alp
         grid.setValue(nx, ny, targetValue);
         updateDOF({ nx, ny }, targetValue);
 
-        Position opponentBestMove = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+        Position result = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
         int heuristicScore = isMaximizingPlayer ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
 

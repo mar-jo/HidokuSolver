@@ -64,6 +64,7 @@ private:
 
     bool solveRecursive(Position P1_head, Position P2_head, bool isP1Turn);
     Position minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue);
+    bool boardFilled() const;
     bool checkFixedValueProximity(Position pos, int value);
 
     int heuristicA(const Grid& grid, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY);
