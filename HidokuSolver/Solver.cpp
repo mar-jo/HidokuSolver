@@ -217,6 +217,8 @@ bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
       return true;
    }
 
+   bool isMaximizingPlayer = isP1Turn;
+
    int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
    int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
    Position& currentHead = isP1Turn ? P1_head : P2_head;
@@ -249,26 +251,21 @@ bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
       grid.setValue(nx, ny, targetValue);
       updateDOF({ nx, ny }, targetValue);
 
-      int score = minimax({ nx, ny }, opponentHead, grid.getSize() * grid.getSize(), std::numeric_limits<int>::min(), std::numeric_limits<int>::max(),!isP1Turn, isP1Turn, nextTargetValue);
+      int score = minimax({ nx, ny }, opponentHead, grid.getSize() * grid.getSize(), std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), isMaximizingPlayer, isP1Turn, nextTargetValue);
 
       grid.setValue(nx, ny, originalValue);
       updateDOF({ nx, ny }, originalValue);
 
-      if ((isP1Turn && score > bestScore) || (!isP1Turn && score < bestScore))
+      if ((isMaximizingPlayer && score > bestScore) || (!isMaximizingPlayer && score < bestScore))
       {
-         bestScore = score;
-         bestMove = { nx, ny };
+          bestScore = score;
+          bestMove = { nx, ny };
       }
    }
 
-   if (!moveFound)
+   if (!moveFound || bestMove.x == -1 || bestMove.y == -1)
    {
-      return false;
-   }
-
-   if (bestMove.x == -1 && bestMove.y == -1)
-   {
-      return false;
+       return false;
    }
 
    grid.setValue(bestMove.x, bestMove.y, targetValue);
@@ -300,6 +297,12 @@ int Solver::minimax(Position current, Position opponent, int depth, int alpha, i
 
       int score = minimax({ current.x, current.y }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
+      int heuristicScore = isMaximizingPlayer
+          ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
+          : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
+
+      score += heuristicScore;
+
       if (isMaximizingPlayer)
       {
          bestScore = std::max(bestScore, score);
@@ -310,6 +313,9 @@ int Solver::minimax(Position current, Position opponent, int depth, int alpha, i
          bestScore = std::min(bestScore, score);
          beta = std::min(beta, bestScore);
       }
+
+      //if (beta <= alpha)
+      //    return bestScore;
 
       return bestScore;
    }
@@ -336,6 +342,12 @@ int Solver::minimax(Position current, Position opponent, int depth, int alpha, i
       updateDOF({ nx, ny }, targetValue);
 
       int score = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+
+      int heuristicScore = isMaximizingPlayer
+          ? heuristicA(grid, nx, ny, opponent.x, opponent.y)
+          : heuristicB(grid, nx, ny, opponent.x, opponent.y);
+
+      score += heuristicScore;
 
       grid.setValue(nx, ny, originalValue);
       updateDOF({ nx, ny }, originalValue);
