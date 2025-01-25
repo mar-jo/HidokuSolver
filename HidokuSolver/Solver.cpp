@@ -212,162 +212,142 @@ bool Solver::checkFixedValueProximity(Position pos, int value)
 
 bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 {
-   if (P1_head == P2_head)
-   {
-      return true;
-   }
+    if (P1_head == P2_head)
+    {
+        return true;
+    }
 
-   bool isMaximizingPlayer = isP1Turn;
+    bool isMaximizingPlayer = isP1Turn;
+    int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
+    int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
+    Position& currentHead = isP1Turn ? P1_head : P2_head;
 
-   int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
-   int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
-   Position& currentHead = isP1Turn ? P1_head : P2_head;
-   Position& opponentHead = isP1Turn ? P2_head : P1_head;
+    if (positions.find(targetValue) != positions.end())
+    {
+        currentHead = { positions[targetValue].first, positions[targetValue].second };
+        targetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
+    }
 
-   if (positions.find(targetValue) != positions.end())
-   {
-      currentHead = Position(positions[targetValue].first, positions[targetValue].second);
-      grid.display(std::cout);
-      return solveRecursive(P1_head, P2_head, !isP1Turn);
-   }
+    Position bestMove = minimax(currentHead, isP1Turn ? P2_head : P1_head, grid.getSize() * grid.getSize(), std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), isMaximizingPlayer, isP1Turn, targetValue);
 
-   Position bestMove(-1, -1);
-   int bestScore = isP1Turn ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
-   bool moveFound = false;
+    if (bestMove.x == -1 || bestMove.y == -1)
+    {
+        return false;
+    }
 
-   for (const auto& neighbor : neighbors[currentHead.x][currentHead.y])
-   {
-      int nx = neighbor.first;
-      int ny = neighbor.second;
+    grid.setValue(bestMove.x, bestMove.y, targetValue);
+    updateDOF(bestMove, targetValue);
+    currentHead = bestMove;
 
-      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
+    grid.display(std::cout);
+    std::cout << std::endl;
 
-      if (!isValidMove(nx, ny, targetValue, nextTargetValue))
-         continue;
-
-      moveFound = true;
-
-      int originalValue = grid.getValue(nx, ny);
-      grid.setValue(nx, ny, targetValue);
-      updateDOF({ nx, ny }, targetValue);
-
-      int score = minimax({ nx, ny }, opponentHead, grid.getSize() * grid.getSize(), std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), isMaximizingPlayer, isP1Turn, nextTargetValue);
-
-      grid.setValue(nx, ny, originalValue);
-      updateDOF({ nx, ny }, originalValue);
-
-      if ((isMaximizingPlayer && score > bestScore) || (!isMaximizingPlayer && score < bestScore))
-      {
-          bestScore = score;
-          bestMove = { nx, ny };
-      }
-   }
-
-   if (!moveFound || bestMove.x == -1 || bestMove.y == -1)
-   {
-       return false;
-   }
-
-   grid.setValue(bestMove.x, bestMove.y, targetValue);
-   updateDOF(bestMove, targetValue);
-   currentHead = bestMove;
-
-   grid.display(std::cout);
-
-   return solveRecursive(P1_head, P2_head, !isP1Turn);
+    return solveRecursive(P1_head, P2_head, !isP1Turn);
 }
 
-int Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue)
+Position Solver::minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue) 
 {
-   if (depth == 0 || current == opponent || grid.getValue(current.x, current.y) == targetValue) // stupid evaluation
-   {
-      return isMaximizingPlayer
-         ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
-         : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
-   }
+    if (current == opponent || depth == 0 || grid.getValue(current.x, current.y) == targetValue)
+    {
+        return current;
+    }
 
-   int bestScore = isMaximizingPlayer ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
+    Position bestMove(-1, -1);
+    int bestScore = isMaximizingPlayer ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
 
-   if (positions.find(targetValue) != positions.end() && checkFixedValueProximity({ current.x, current.y }, targetValue))
-   {
-      auto [fixedX, fixedY] = positions[targetValue];
-      current = Position(fixedX, fixedY);
+    if (positions.find(targetValue) != positions.end() && checkFixedValueProximity({ current.x, current.y }, targetValue)) 
+    {
+        auto [fixedX, fixedY] = positions[targetValue];
 
-      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
+        int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-      int score = minimax({ current.x, current.y }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+        Position result = minimax({ fixedX, fixedY }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
-      int heuristicScore = isMaximizingPlayer
-          ? heuristicA(grid, current.x, current.y, opponent.x, opponent.y)
-          : heuristicB(grid, current.x, current.y, opponent.x, opponent.y);
+        int score = isMaximizingPlayer ? heuristicA(grid, fixedX, fixedY, opponent.x, opponent.y) : heuristicB(grid, fixedX, fixedY, opponent.x, opponent.y);
 
-      score += heuristicScore;
+        if (isMaximizingPlayer)
+        {
+            if (score > bestScore)
+            {
+                bestScore = score;
+                bestMove = { fixedX, fixedY };
+            }
 
-      if (isMaximizingPlayer)
-      {
-         bestScore = std::max(bestScore, score);
-         alpha = std::max(alpha, bestScore);
-      }
-      else
-      {
-         bestScore = std::min(bestScore, score);
-         beta = std::min(beta, bestScore);
-      }
+            alpha = std::max(alpha, bestScore);
+        }
+        else
+        {
+            if (score < bestScore)
+            {
+                bestScore = score;
+                bestMove = { fixedX, fixedY };
+            }
 
-      //if (beta <= alpha)
-      //    return bestScore;
+            beta = std::min(beta, bestScore);
+        }
 
-      return bestScore;
-   }
 
-   for (const auto& neighbor : neighbors[current.x][current.y])
-   {
-      int nx = neighbor.first;
-      int ny = neighbor.second;
+        if (beta <= alpha)
+        {
+            return { fixedX, fixedY };
+        }
 
-      int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
+        return bestMove;
+    }
 
-      if (positions.find(targetValue) != positions.end() && positions[targetValue] == std::make_pair(nx, ny))
-      {
-         continue;
-      }
+    for (const auto& neighbor : neighbors[current.x][current.y]) 
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
 
-      if (!isValidMove(nx, ny, targetValue, nextTargetValue))
-      {
-         continue;
-      }
+        int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-      int originalValue = grid.getValue(nx, ny);
-      grid.setValue(nx, ny, targetValue);
-      updateDOF({ nx, ny }, targetValue);
+        if (!isValidMove(nx, ny, targetValue, nextTargetValue)) 
+        {
+            continue;
+        }
 
-      int score = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
+        int originalValue = grid.getValue(nx, ny);
+        grid.setValue(nx, ny, targetValue);
+        updateDOF({ nx, ny }, targetValue);
 
-      int heuristicScore = isMaximizingPlayer
-          ? heuristicA(grid, nx, ny, opponent.x, opponent.y)
-          : heuristicB(grid, nx, ny, opponent.x, opponent.y);
+        Position opponentBestMove = minimax({ nx, ny }, opponent, depth - 1, alpha, beta, !isMaximizingPlayer, isP1Turn, nextTargetValue);
 
-      score += heuristicScore;
+        int heuristicScore = isMaximizingPlayer ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
 
-      grid.setValue(nx, ny, originalValue);
-      updateDOF({ nx, ny }, originalValue);
+        int score = heuristicScore;
 
-      if (isMaximizingPlayer)
-      {
-         bestScore = std::max(bestScore, score);
-         alpha = std::max(alpha, bestScore);
-      }
-      else
-      {
-         bestScore = std::min(bestScore, score);
-         beta = std::min(beta, bestScore);
-      }
+        grid.setValue(nx, ny, originalValue);
+        updateDOF({ nx, ny }, originalValue);
 
-      if (beta <= alpha)
-         break;
-   }
+        if (isMaximizingPlayer) 
+        {
+            if (score > bestScore) 
+            {
+                bestScore = score;
+                bestMove = { nx, ny };
+            }
 
-   return bestScore;
+            alpha = std::max(alpha, bestScore);
+        }
+        else 
+        {
+            if (score < bestScore) 
+            {
+                bestScore = score;
+                bestMove = { nx, ny };
+            }
+
+            beta = std::min(beta, bestScore);
+        }
+
+        if (beta <= alpha) 
+        {
+            break;
+        }
+    }
+
+    return bestMove;
 }
 
 bool Solver::solve() 
@@ -388,25 +368,21 @@ bool Solver::solve()
 
 int Solver::heuristicA(const Grid& grid, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY)
 {
-    int conflictPenalty = 0;
-
-    for (int x = 0; x < grid.getSize(); ++x)
-    {
-        for (int y = 0; y < grid.getSize(); ++y)
-        {
-            if (grid.getValue(x, y) != 0)
-            {
-                conflictPenalty += 10;
-            }
-        }
-    }
-
     int playerDOF = dofGrid[playerHeadX][playerHeadY];
     int opponentDOF = dofGrid[opponentHeadX][opponentHeadY];
 
-    int distanceToOpponent = abs(playerHeadX - opponentHeadX) + abs(playerHeadY - opponentHeadY);
+    int conflictPenalty = 0;
+    for (const auto& neighbor : neighbors[playerHeadX][playerHeadY])
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+        if (grid.getValue(nx, ny) != 0)
+        {
+            conflictPenalty += 2;
+        }
+    }
 
-    return -conflictPenalty + distanceToOpponent + (5 * playerDOF) - (3 * opponentDOF);
+    return (8 * playerDOF) - (5 * opponentDOF) - conflictPenalty;
 }
 
 int Solver::heuristicB(const Grid& grid, int playerHeadX, int playerHeadY, int opponentHeadX, int opponentHeadY)
@@ -414,39 +390,23 @@ int Solver::heuristicB(const Grid& grid, int playerHeadX, int playerHeadY, int o
     int proximityScore = 0;
     int conflictPenalty = 0;
 
-    for (const auto& [num, pos] : positions)
+    for (const auto& neighbor : neighbors[playerHeadX][playerHeadY])
     {
-        auto [x, y] = pos;
+        int nx = neighbor.first;
+        int ny = neighbor.second;
 
-        for (int dx = -1; dx <= 1; ++dx)
+        if (grid.getValue(nx, ny) == 0)
         {
-            for (int dy = -1; dy <= 1; ++dy)
-            {
-                int nx = x + dx;
-                int ny = y + dy;
-
-                if (grid.isWithinBounds(nx, ny))
-                {
-                    if (grid.getValue(nx, ny) == 0)
-                    {
-                        proximityScore += (10 - abs(dx) - abs(dy));
-                    }
-                    else
-                    {
-                        conflictPenalty += 5;
-                    }
-                }
-            }
+            proximityScore += 5;
+        }
+        else
+        {
+            conflictPenalty += 2;
         }
     }
 
     int playerDOF = dofGrid[playerHeadX][playerHeadY];
-    int opponentDOF = dofGrid[opponentHeadX][opponentHeadY];
-
-    int distanceToOpponent = abs(playerHeadX - opponentHeadX) + abs(playerHeadY - opponentHeadY);
-    int distanceFactor = -distanceToOpponent * 2;
-
-    return proximityScore - conflictPenalty + distanceFactor + (5 * playerDOF) - (7 * opponentDOF);
+    return proximityScore - conflictPenalty + (6 * playerDOF);
 }
 
 void Solver::displaySolution() const
