@@ -54,16 +54,19 @@ private:
 
     std::unordered_map<int, std::pair<int, int>> findFixedCells(const Grid& grid);
     Neighbor computeNeighbors(const Grid& grid);
+    std::vector<std::pair<int, int>> sortNeighborsByFreeSpaces(const std::vector<std::pair<int, int>>& cellNeighbors, const Grid& grid);
     std::vector<int> getFixedNeighborValues(const Grid& grid, int x, int y);
     std::unordered_set<int> findUsedValues(const Grid& grid);
 
     std::vector<std::vector<int>> computeInitialDOF(const Grid& grid);
     void updateDOF(const Position& move, int value);
 
+    bool checkNeighborConnectivity(int nx, int ny, int targetValue);
     bool isValidMove(int nx, int ny, int targetValue, int nextValue);
 
     bool solveRecursive(Position P1_head, Position P2_head, bool isP1Turn);
-    Position minimax(Position current, Position opponent, int depth, int alpha, int beta, bool isMaximizingPlayer, bool isP1Turn, int targetValue);
+    std::pair<Position, bool> alphaBetaCSP(Position current, Position opponent, int alpha, int beta, int depth, bool isP1Turn, int targetValue);
+
     bool boardFilled() const;
     bool checkFixedValueProximity(Position pos, int value);
 
