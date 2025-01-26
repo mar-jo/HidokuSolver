@@ -12,7 +12,7 @@ int main(int argc, char* argv[])
     if (argc < 2)
     {
         std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
-        file = "puzzles/test.txt";
+        file = "puzzles/001.txt";
     }
     else
     {
@@ -39,8 +39,7 @@ int main(int argc, char* argv[])
         }
         else
         {
-            std::cout << "\nNo solution found." << std::endl;
-            solver.displaySolution();
+            std::cout << "\nNo solution found. Terminating..." << std::endl;
         }
     }
     catch (const std::exception& e)

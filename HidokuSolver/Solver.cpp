@@ -56,45 +56,11 @@ Neighbor Solver::computeNeighbors(const Grid& grid)
                 }
             }
 
-            neighbors[i][j] = sortNeighborsByFreeSpaces(cellNeighbors, grid);
+            neighbors[i][j] = std::move(cellNeighbors);
         }
     }
 
     return neighbors;
-}
-
-std::vector<std::pair<int, int>> Solver::sortNeighborsByFreeSpaces(const std::vector<std::pair<int, int>>& cellNeighbors, const Grid& grid)
-{
-    auto countFreeSpaces = [&](const std::pair<int, int>& cell) 
-        {
-            int freeSpaces = 0;
-            int x = cell.first, y = cell.second;
-
-            for (int dx = -1; dx <= 1; ++dx)
-            {
-                for (int dy = -1; dy <= 1; ++dy)
-                {
-                    if ((dx != 0 || dy != 0) && grid.isWithinBounds(x + dx, y + dy))
-                    {
-                        if (grid.getValue(x + dx, y + dy) == 0)
-                        {
-                            ++freeSpaces;
-                        }
-                    }
-                }
-            }
-
-            return freeSpaces;
-        };
-
-    auto sortedNeighbors = cellNeighbors;
-
-    std::sort(sortedNeighbors.begin(), sortedNeighbors.end(), [&](const std::pair<int, int>& a, const std::pair<int, int>& b) 
-        {
-            return countFreeSpaces(a) < countFreeSpaces(b);
-        });
-
-    return sortedNeighbors;
 }
 
 std::vector<int> Solver::getFixedNeighborValues(const Grid& grid, int x, int y) 
@@ -291,6 +257,33 @@ bool Solver::boardFilled() const
     return true;
 }
 
+std::vector<std::pair<int, Position>> Solver::getSortedMoves(Position current, Position opponent, int targetValue, bool isP1Turn) 
+{
+    std::vector<std::pair<int, Position>> moves;
+
+    for (auto& neighbor : neighbors[current.x][current.y]) 
+    {
+        int nx = neighbor.first;
+        int ny = neighbor.second;
+
+        int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
+
+        if (isValidMove(nx, ny, targetValue, nextTargetValue)) 
+        {
+            int heuristicScore = isP1Turn ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
+
+            moves.emplace_back(heuristicScore, Position(nx, ny));
+        }
+    }
+
+    std::sort(moves.begin(), moves.end(), [&](const auto& a, const auto& b) 
+        {
+            return isP1Turn ? a.first > b.first : a.first < b.first;
+        });
+
+    return moves;
+}
+
 bool Solver::solve()
 {
     auto start = std::chrono::high_resolution_clock::now();
@@ -309,11 +302,6 @@ bool Solver::solve()
 
 bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 {
-    if (boardFilled())
-    {
-        return P1_head == P2_head;
-    }
-
     int currentValue = isP1Turn ? grid.getValue(P1_head.x, P1_head.y) : grid.getValue(P2_head.x, P2_head.y);
     int targetValue = isP1Turn ? currentValue + 1 : currentValue - 1;
     Position& currentHead = isP1Turn ? P1_head : P2_head;
@@ -327,6 +315,11 @@ bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
     }
 
     auto [bestMove, pathValid] = alphaBetaCSP(currentHead, isP1Turn ? P2_head : P1_head, std::numeric_limits<int>::min(), std::numeric_limits<int>::max(), grid.getSize() * grid.getSize(), isP1Turn, targetValue);
+
+    if (grid.isComplete(solution))
+    {
+        return true;
+    }
 
     if (!pathValid || bestMove.x == -1 || bestMove.y == -1)
     {
@@ -359,7 +352,6 @@ std::pair<Position, bool> Solver::alphaBetaCSP(Position current, Position oppone
 
     Position bestMove(-1, -1);
     bool pathValid = false;
-    int bestScore = isP1Turn ? std::numeric_limits<int>::min() : std::numeric_limits<int>::max();
 
     if (positions.find(targetValue) != positions.end() && checkFixedValueProximity(current, targetValue))
     {
@@ -369,75 +361,47 @@ std::pair<Position, bool> Solver::alphaBetaCSP(Position current, Position oppone
         auto [result, valid] = alphaBetaCSP({ nx, ny }, opponent, alpha, beta, depth - 1, isP1Turn, nextTargetValue);
         pathValid = valid;
 
-        int score = isP1Turn ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
-
-        if (isP1Turn)
-        {
-            if (score > bestScore)
-            {
-                bestScore = score;
-                bestMove = { nx, ny };
-            }
-            alpha = std::max(alpha, bestScore);
-        }
-        else
-        {
-            if (score < bestScore)
-            {
-                bestScore = score;
-                bestMove = { nx, ny };
-            }
-            beta = std::min(beta, bestScore);
-        }
-
-        if (beta <= alpha)
-        {
-            return { bestMove, pathValid };
-        }
-
-        return { bestMove, pathValid };
+        return { { nx, ny }, pathValid };
     }
 
-    for (const auto& neighbor : neighbors[current.x][current.y])
+    auto moves = getSortedMoves(current, opponent, targetValue, isP1Turn);
+
+    for (const auto& move : moves)
     {
-        int nx = neighbor.first;
-        int ny = neighbor.second;
+        int heuristicScore = move.first;
+        Position nextMove = move.second;
+
         int nextTargetValue = isP1Turn ? targetValue + 1 : targetValue - 1;
 
-        if (!isValidMove(nx, ny, targetValue, nextTargetValue))
+        if (!isValidMove(nextMove.x, nextMove.y, targetValue, nextTargetValue))
         {
             continue;
         }
 
-        int originalValue = grid.getValue(nx, ny);
-        grid.setValue(nx, ny, targetValue);
-        updateDOF({ nx, ny }, targetValue);
+        int originalValue = grid.getValue(nextMove.x, nextMove.y);
+        grid.setValue(nextMove.x, nextMove.y, targetValue);
+        updateDOF(nextMove, targetValue);
 
-        auto [result, valid] = alphaBetaCSP({ nx, ny }, opponent, alpha, beta, depth - 1, isP1Turn, nextTargetValue);
+        auto [result, valid] = alphaBetaCSP(nextMove, opponent, alpha, beta, depth - 1, isP1Turn, nextTargetValue);
         pathValid = pathValid || valid;
 
-        int heuristicScore = isP1Turn ? heuristicA(grid, nx, ny, opponent.x, opponent.y) : heuristicB(grid, nx, ny, opponent.x, opponent.y);
+        grid.setValue(nextMove.x, nextMove.y, originalValue);
+        updateDOF(nextMove, originalValue);
 
-        grid.setValue(nx, ny, originalValue);
-        updateDOF({ nx, ny }, originalValue);
+        if (valid)
+        {
+            return { nextMove, true };
+        }
 
         if (isP1Turn)
         {
-            if (heuristicScore > bestScore)
-            {
-                bestScore = heuristicScore;
-                bestMove = { nx, ny };
-            }
-            alpha = std::max(alpha, bestScore);
+            alpha = std::max(alpha, heuristicScore);
+            bestMove = nextMove;
         }
         else
         {
-            if (heuristicScore < bestScore)
-            {
-                bestScore = heuristicScore;
-                bestMove = { nx, ny };
-            }
-            beta = std::min(beta, bestScore);
+            beta = std::min(beta, heuristicScore);
+            bestMove = nextMove;
         }
 
         if (beta <= alpha)

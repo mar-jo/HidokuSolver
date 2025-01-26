@@ -54,7 +54,7 @@ private:
 
     std::unordered_map<int, std::pair<int, int>> findFixedCells(const Grid& grid);
     Neighbor computeNeighbors(const Grid& grid);
-    std::vector<std::pair<int, int>> sortNeighborsByFreeSpaces(const std::vector<std::pair<int, int>>& cellNeighbors, const Grid& grid);
+    std::vector<std::pair<int, Position>> getSortedMoves(Position current, Position opponent, int targetValue, bool isP1Turn);
     std::vector<int> getFixedNeighborValues(const Grid& grid, int x, int y);
     std::unordered_set<int> findUsedValues(const Grid& grid);
 
