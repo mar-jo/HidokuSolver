@@ -1,45 +1,89 @@
 #include <iostream>
 #include <string>
+#include <filesystem>
 
 #include "FileIO.h"
 #include "Grid.h"
 #include "Solver.h"
 
+namespace fs = std::filesystem;
+
 int main(int argc, char* argv[])
 {
-    std::string file;
+    std::string directory = "puzzles";
 
-    if (argc < 2)
+    if (argc > 1)
     {
-        std::cerr << "Usage: " << argv[0] << " <input_file>" << std::endl;
-        file = "puzzles/001.txt";
+        directory = argv[1];
     }
-    else
+
+    if (!fs::exists(directory))
     {
-        file = argv[1];
+        std::cerr << "Error: " << directory << " does not exist." << std::endl;
+        return 1;
     }
 
     try
     {
-        FileIO fileIO;
-
-        Grid problemGrid(0);
-        Grid solutionGrid(0);
-        fileIO.loadPuzzleWithSolution(file, problemGrid, solutionGrid);
-
-        Solver solver(problemGrid, solutionGrid);
-
-        std::cout << "\nStarting search..." << std::endl;
-        bool success = solver.solve();
-
-        if (success)
+        if (fs::is_regular_file(directory))
         {
-            std::cout << "\nSolution found!" << std::endl;
-            solver.displaySolution();
+            std::cout << "Processing file: " << directory << std::endl;
+
+            FileIO fileIO;
+            Grid problemGrid(0);
+            Grid solutionGrid(0);
+
+            fileIO.loadPuzzleWithSolution(directory, problemGrid, solutionGrid);
+
+            Solver solver(problemGrid, solutionGrid);
+            auto [success, elapsedSeconds] = solver.solve();
+
+            if (success)
+            {
+                std::cout << "Solution for " << directory
+                    << " found in " << elapsedSeconds << " seconds." << std::endl;
+            }
+            else
+            {
+                std::cout << "[WARNING!] No solution found for " << directory << "..." << std::endl;
+            }
+        }
+        else if (fs::is_directory(directory))
+        {
+            for (const auto& entry : fs::directory_iterator(directory))
+            {
+                if (!entry.is_regular_file() || entry.path().extension() != ".txt")
+                {
+                    continue;
+                }
+
+                std::string filePath = entry.path().string();
+                std::cout << "Processing: " << filePath << std::endl;
+
+                FileIO fileIO;
+                Grid problemGrid(0);
+                Grid solutionGrid(0);
+
+                fileIO.loadPuzzleWithSolution(filePath, problemGrid, solutionGrid);
+
+                Solver solver(problemGrid, solutionGrid);
+                auto [success, elapsedSeconds] = solver.solve();
+
+                if (success)
+                {
+                    std::cout << "Solution for " << filePath
+                        << " found in " << elapsedSeconds << " seconds." << std::endl;
+                }
+                else
+                {
+                    std::cout << "[WARNING!] No solution found for " << filePath << "..." << std::endl;
+                }
+            }
         }
         else
         {
-            std::cout << "\nNo solution found. Terminating..." << std::endl;
+            std::cerr << "Error: " << directory << " is neither a file nor a directory." << std::endl;
+            return 1;
         }
     }
     catch (const std::exception& e)

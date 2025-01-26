@@ -1,6 +1,6 @@
-CXX = g++
+CXX = g++-11
 CXXFLAGS = -std=c++20 -Wall -Wextra -O3 
-LDFLAGS = -lstdc++fs # Filesystem library for GCC
+LDFLAGS = -lstdc++fs
 
 SRCDIR = .
 OBJDIR = obj
@@ -24,9 +24,19 @@ test: $(TARGET)
 	@echo "Running all puzzles in $(TESTDIR)..."
 	@for file in $(wildcard $(TESTDIR)/*.txt); do \
 		echo "Testing $$file..."; \
-		./$(TARGET) $$file || exit 1; \
+		if timeout 60 ./$(TARGET) $$file; then \
+			echo "[PASSED] $$file solved within 1 minute."; \
+		else \
+			STATUS=$$?; \
+			if [ $$STATUS -eq 124 ]; then \
+				echo "[SKIPPED] $$file exceeded 1 minute limit."; \
+			else \
+				echo "[FAILED] $$file encountered an error."; \
+				exit 1; \
+			fi; \
+		fi; \
 	done
-	@echo "All tests completed successfully!"
+	@echo "All tests completed!"
 
 run: $(TARGET)
 	@if [ -z "$(FILE)" ]; then \

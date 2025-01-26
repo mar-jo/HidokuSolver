@@ -41,7 +41,7 @@ class Solver
 {
 public:
     Solver(const Grid& initialGrid, const Grid& solutionGrid);
-    bool solve();
+    std::pair<bool, double> solve();
     void displaySolution() const;
 
 private:

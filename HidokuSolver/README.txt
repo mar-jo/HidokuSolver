@@ -1,4 +1,4 @@
-cd /mnt/c/Users/markx/source/repos/Hidoku/Hidoku
+cd /mnt/c/Users/markx/source/repos/HidokuSolver/HidokuSolver
 
 make clean
 

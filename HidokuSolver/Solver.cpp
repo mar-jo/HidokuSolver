@@ -284,7 +284,7 @@ std::vector<std::pair<int, Position>> Solver::getSortedMoves(Position current, P
     return moves;
 }
 
-bool Solver::solve()
+std::pair<bool, double> Solver::solve()
 {
     auto start = std::chrono::high_resolution_clock::now();
 
@@ -294,10 +294,9 @@ bool Solver::solve()
     bool success = solveRecursive(P1_head, P2_head, true);
 
     auto end = std::chrono::high_resolution_clock::now();
-    std::cout << "Solution " << (success ? "found" : "not found") << " in "
-        << std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() << " ms.\n";
+    double elapsedTime = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count() / 1000.0;
 
-    return success;
+    return { success, elapsedTime };
 }
 
 bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
@@ -331,9 +330,6 @@ bool Solver::solveRecursive(Position P1_head, Position P2_head, bool isP1Turn)
 
     positions[targetValue] = { bestMove.x, bestMove.y };
     currentHead = bestMove;
-
-    grid.display(std::cout);
-    std::cout << std::endl;
 
     return solveRecursive(P1_head, P2_head, !isP1Turn);
 }
@@ -458,6 +454,5 @@ int Solver::heuristicB(const Grid& grid, int playerHeadX, int playerHeadY, int o
 
 void Solver::displaySolution() const
 {
-    std::cout << "FINAL GRID:" << std::endl;
     grid.display(std::cout);
 }
